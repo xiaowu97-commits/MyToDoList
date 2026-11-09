@@ -249,7 +249,9 @@ async function handleGoogleSignIn() {
     showToast('登入成功！', 'success');
   } catch (error) {
     console.error('Google Sign-In Error:', error);
-    if (error.code === 'auth/configuration-not-found' || error.code === 'auth/invalid-api-key') {
+    if (error.code === 'auth/unauthorized-domain') {
+      showToast('網域未授權！請至 Firebase 控制台 > Authentication > Settings 將 ' + window.location.hostname + ' 加入授權網域', 'error');
+    } else if (error.code === 'auth/configuration-not-found' || error.code === 'auth/invalid-api-key') {
       showToast('Firebase 設定無效，請於設定視窗輸入正確的 Web API Key', 'error');
       openSettingsModal();
     } else if (error.code === 'auth/popup-closed-by-user') {
