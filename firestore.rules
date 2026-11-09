@@ -1,0 +1,253 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Application: Collaborative To-Do List (Project: my-to-do-list-fd68c)
+//
+// Collection: users
+// Document ID: {userId} (matches Firebase Auth UID)
+// Fields:
+//   - uid: string (required, immutable, matches userId)
+//   - displayName: string (required, 1-100 chars)
+//   - email: string (required, valid email format, max 254 chars)
+//   - photoURL: string (optional, valid URL, max 1000 chars)
+//   - lastLogin: timestamp (optional)
+//
+// Collection: lists
+// Document ID: {listId}
+// Fields:
+//   - title: string (required, 1-120 chars)
+//   - description: string (optional, max 2000 chars)
+//   - ownerId: string (required, immutable, creator UID)
+//   - ownerEmail: string (required, immutable, creator email)
+//   - memberEmails: list of strings (required, lowercased emails, max 100 items)
+//   - memberUids: list of strings (required, UIDs of joined members, max 100 items)
+//   - taskCount: int (optional, >= 0)
+//   - tasksCount: int (optional, >= 0)
+//   - createdAt: timestamp (required, immutable, recent timestamp)
+//   - updatedAt: timestamp (required)
+//
+// Subcollection: lists/{listId}/tasks
+// Document ID: {taskId}
+// Fields:
+//   - title: string (required, 1-200 chars)
+//   - completed: bool (required)
+//   - priority: string (required, 'low' | 'medium' | 'high')
+//   - dueDate: timestamp | string (optional, max 50 chars if string)
+//   - assignedTo: map (optional, keys: uid, email, displayName, photoURL)
+//   - createdBy: map (required, immutable uid, keys: uid, email, displayName, photoURL)
+//   - createdAt: timestamp (required, immutable, recent timestamp)
+//   - updatedAt: timestamp (required)
+//   - completedAt: timestamp (optional)
+//   - completedBy: map (optional, keys: uid, email, displayName, photoURL)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user owns the resource (by userId match)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if an email format is valid
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Check if a URL format is valid
+    function isValidUrl(url) {
+      return url is string &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // Check if timestamp is recent (within 5 minutes)
+    function isRecent(time) {
+      return time is timestamp &&
+        time > request.time - duration.value(5, 'm') &&
+        time <= request.time + duration.value(1, 'm');
+    }
+
+    // Validate user profile mapping structure (createdBy, assignedTo, completedBy)
+    function isValidUserMetaMap(userMap) {
+      return userMap is map &&
+        userMap.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL']) &&
+        (!('uid' in userMap) || (userMap.uid is string && userMap.uid.size() > 0 && userMap.uid.size() <= 128)) &&
+        (!('email' in userMap) || (userMap.email is string && userMap.email.size() <= 254)) &&
+        (!('displayName' in userMap) || (userMap.displayName is string && userMap.displayName.size() <= 100)) &&
+        (!('photoURL' in userMap) || (userMap.photoURL is string && userMap.photoURL.size() <= 1000));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // --- Users Domain Validator ---
+    function isValidUser(data) {
+      return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'lastLogin']) &&
+        data.keys().hasAll(['uid', 'displayName', 'email']) &&
+        data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.email is string && data.email.size() <= 254 && isValidEmail(data.email) &&
+        (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 1000 && (data.photoURL.size() == 0 || isValidUrl(data.photoURL)))) &&
+        (!('lastLogin' in data) || data.lastLogin == null || data.lastLogin is timestamp);
+    }
+
+    // --- Lists Domain Validator ---
+    function isValidListDoc(data) {
+      return data.keys().hasOnly(['title', 'description', 'ownerId', 'ownerEmail', 'memberEmails', 'memberUids', 'taskCount', 'tasksCount', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['title', 'ownerId', 'ownerEmail', 'memberEmails', 'memberUids', 'createdAt', 'updatedAt']) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 2000)) &&
+        data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() <= 128 &&
+        data.ownerEmail is string && data.ownerEmail.size() <= 254 && isValidEmail(data.ownerEmail) &&
+        data.memberEmails is list && data.memberEmails.size() <= 100 &&
+        data.memberUids is list && data.memberUids.size() <= 100 &&
+        (!('taskCount' in data) || (data.taskCount is int && data.taskCount >= 0)) &&
+        (!('tasksCount' in data) || (data.tasksCount is int && data.tasksCount >= 0)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // --- Tasks Domain Validator ---
+    function isValidTaskDoc(data) {
+      return data.keys().hasOnly(['title', 'completed', 'priority', 'dueDate', 'assignedTo', 'createdBy', 'createdAt', 'updatedAt', 'completedAt', 'completedBy']) &&
+        data.keys().hasAll(['title', 'completed', 'priority', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.completed is bool &&
+        data.priority is string && data.priority in ['low', 'medium', 'high'] &&
+        (!('dueDate' in data) || data.dueDate == null || data.dueDate is timestamp || (data.dueDate is string && data.dueDate.size() <= 50)) &&
+        (!('assignedTo' in data) || data.assignedTo == null || isValidUserMetaMap(data.assignedTo)) &&
+        isValidUserMetaMap(data.createdBy) && ('uid' in data.createdBy && data.createdBy.uid is string && data.createdBy.uid.size() > 0) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (!('completedAt' in data) || data.completedAt == null || data.completedAt is timestamp) &&
+        (!('completedBy' in data) || data.completedBy == null || isValidUserMetaMap(data.completedBy));
+    }
+
+    // ===============================================================
+    // List Access Control Helpers
+    // ===============================================================
+
+    // Check if the current user is the owner of the list
+    function isListOwner(listData) {
+      return isAuthenticated() && request.auth.uid == listData.ownerId;
+    }
+
+    // Check if the current user is an authorized list member or owner
+    function isListMember(listData) {
+      return isAuthenticated() && (
+        request.auth.uid == listData.ownerId ||
+        (listData.memberUids is list && request.auth.uid in listData.memberUids) ||
+        ('email' in request.auth.token &&
+         request.auth.token.email is string &&
+         listData.memberEmails is list &&
+         request.auth.token.email in listData.memberEmails)
+      );
+    }
+
+    // Check if parent list exists and user has access to it
+    function hasParentListAccess(listId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/lists/$(listId)) &&
+        isListMember(get(/databases/$(database)/documents/lists/$(listId)).data);
+    }
+
+    // ===============================================================
+    // Security Rules Match Blocks
+    // ===============================================================
+
+    // Default Deny Rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------
+    // 1. Users Collection
+    // -------------------------------------------------------------
+    match /users/{userId} {
+      // Authenticated users can read public profile info to display collaborators
+      allow read: if isAuthenticated();
+
+      // Only the user themselves can create their own profile document
+      allow create: if isOwner(userId) &&
+        isValidUser(request.resource.data) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.uid == request.auth.uid;
+
+      // Only the user themselves can update their profile; uid is immutable
+      allow update: if isOwner(userId) &&
+        isValidUser(request.resource.data) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.uid == userId;
+
+      // Users can delete their own account profile
+      allow delete: if isOwner(userId);
+    }
+
+    // -------------------------------------------------------------
+    // 2. Collaborative Lists Collection
+    // -------------------------------------------------------------
+    match /lists/{listId} {
+      // Read allowed for list owner or members (by UID or email)
+      allow read: if isListMember(resource.data);
+
+      // Create allowed for authenticated users creating a list as owner
+      allow create: if isAuthenticated() &&
+        isValidListDoc(request.resource.data) &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.auth.uid in request.resource.data.memberUids &&
+        ('email' in request.auth.token && request.resource.data.ownerEmail == request.auth.token.email) &&
+        ('email' in request.auth.token && request.auth.token.email in request.resource.data.memberEmails) &&
+        isRecent(request.resource.data.createdAt);
+
+      // Update allowed for members or owner:
+      // - Immutable core fields: ownerId, ownerEmail, createdAt
+      // - Domain validation strictly enforced on updated data
+      allow update: if isListMember(resource.data) &&
+        isValidListDoc(request.resource.data) &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.ownerEmail == resource.data.ownerEmail &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      // Only the owner can delete the list
+      allow delete: if isListOwner(resource.data);
+
+      // -----------------------------------------------------------
+      // 3. Subcollection: Tasks
+      // -----------------------------------------------------------
+      match /tasks/{taskId} {
+        // Read allowed if user has access to the parent list
+        allow read: if hasParentListAccess(listId);
+
+        // Create allowed if user has access to parent list and records createdBy properly
+        allow create: if hasParentListAccess(listId) &&
+          isValidTaskDoc(request.resource.data) &&
+          request.resource.data.createdBy.uid == request.auth.uid &&
+          isRecent(request.resource.data.createdAt);
+
+        // Update allowed if user has access to parent list; createdBy and createdAt immutable
+        allow update: if hasParentListAccess(listId) &&
+          isValidTaskDoc(request.resource.data) &&
+          request.resource.data.createdBy.uid == resource.data.createdBy.uid &&
+          request.resource.data.createdAt == resource.data.createdAt;
+
+        // Delete allowed for any member who has access to the parent list
+        allow delete: if hasParentListAccess(listId);
+      }
+    }
+  }
+}

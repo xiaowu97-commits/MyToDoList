@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyToDoList - 多人協作待辦清單</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Google Fonts & FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+
+  <!-- Top Navbar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <!-- Logo & Brand -->
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-brand-500/20">
+          <i class="fa-solid fa-list-check text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            MyToDoList
+            <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-100">
+              多人協作
+            </span>
+          </h1>
+          <p class="text-xs text-slate-500 hidden sm:block">Firebase 即時雲端同步</p>
+        </div>
+      </div>
+
+      <!-- User & Auth Actions -->
+      <div class="flex items-center space-x-3" id="nav-auth-container">
+        <!-- Settings Button (Configure Firebase API Key if needed) -->
+        <button id="btn-open-settings" title="Firebase 設定" class="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
+          <i class="fa-solid fa-gear text-lg"></i>
+        </button>
+
+        <!-- Unauthenticated State -->
+        <button id="btn-login-google" class="hidden items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-medium px-4 py-2 rounded-lg shadow-sm transition-all hover:shadow text-sm">
+          <svg class="w-4 h-4" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          Google 登入
+        </button>
+
+        <!-- Authenticated State -->
+        <div id="user-profile-menu" class="hidden items-center space-x-3">
+          <div class="flex items-center space-x-2 text-left">
+            <img id="user-avatar" class="w-8 h-8 rounded-full border border-slate-200 object-cover shadow-sm" src="" alt="User">
+            <div class="hidden md:block leading-tight">
+              <div id="user-name" class="text-xs font-semibold text-slate-800"></div>
+              <div id="user-email" class="text-[11px] text-slate-500 max-w-[140px] truncate"></div>
+            </div>
+          </div>
+          <button id="btn-logout" title="登出" class="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Banner for Missing / Default API Key Warning -->
+  <div id="config-warning-banner" class="hidden bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-amber-800 text-xs sm:text-sm">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+        <span>尚未設定 Firebase Web API Key，請點擊右側設定按鈕以啟用 Google 登入與資料庫連線。</span>
+      </div>
+      <button id="btn-banner-settings" class="bg-amber-600 hover:bg-amber-700 text-white font-medium px-3 py-1 rounded text-xs transition">
+        立即設定
+      </button>
+    </div>
+  </div>
+
+  <!-- Landing / Login Hero (Shown when logged out) -->
+  <div id="logged-out-hero" class="flex-1 flex items-center justify-center p-6">
+    <div class="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200/80 p-8 text-center space-y-6">
+      <div class="w-16 h-16 mx-auto rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center text-3xl shadow-inner">
+        <i class="fa-solid fa-users-rectangle"></i>
+      </div>
+      <div class="space-y-2">
+        <h2 class="text-2xl font-bold text-slate-900">歡迎使用 MyToDoList</h2>
+        <p class="text-sm text-slate-600 leading-relaxed">
+          專為團隊與多人協作設計的待辦清單應用程式。支援即時多人同步、Google 帳號登入、任務指派與進度追蹤。
+        </p>
+      </div>
+
+      <div class="bg-slate-50 rounded-xl p-4 border border-slate-200 text-left space-y-3 text-xs text-slate-600">
+        <div class="flex items-center gap-2.5">
+          <i class="fa-solid fa-bolt text-indigo-500"></i>
+          <span><b>即時多人同步：</b>一人變更，所有協作成員秒級同步</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <i class="fa-solid fa-user-plus text-emerald-500"></i>
+          <span><b>快速邀請成員：</b>輸入 Email 即可共享清單共同編輯</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <i class="fa-solid fa-shield-halved text-blue-500"></i>
+          <span><b>安全防護：</b>Firestore 權限規則嚴格防護清單資料</span>
+        </div>
+      </div>
+
+      <button id="btn-hero-login" class="w-full flex items-center justify-center gap-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-brand-500/25 transition-all transform hover:-translate-y-0.5">
+        <svg class="w-5 h-5 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        使用 Google 帳號開始使用
+      </button>
+
+      <p class="text-[11px] text-slate-400">
+        已綁定 Firebase 專案：<code class="bg-slate-100 text-slate-600 px-1 py-0.5 rounded">my-to-do-list-fd68c</code>
+      </p>
+    </div>
+  </div>
+
+  <!-- Main App Workspace (Shown when logged in) -->
+  <div id="main-app" class="hidden flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- Left Sidebar: Lists Management -->
+      <aside class="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-folder-tree text-brand-600"></i>
+            <h2 class="font-bold text-slate-800 text-sm tracking-wide">待辦清單群組</h2>
+          </div>
+          <button id="btn-open-create-list" class="flex items-center gap-1.5 text-xs bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold px-2.5 py-1.5 rounded-lg transition-colors">
+            <i class="fa-solid fa-plus"></i>
+            <span>新增清單</span>
+          </button>
+        </div>
+
+        <!-- Lists scroll container -->
+        <div id="lists-container" class="p-2 space-y-1 max-h-[calc(100vh-250px)] overflow-y-auto">
+          <!-- Dynamic List items will be injected here -->
+          <div class="text-center py-8 text-slate-400 text-xs">載入中...</div>
+        </div>
+      </aside>
+
+      <!-- Right Main Content: Active List & Tasks -->
+      <main class="lg:col-span-8 space-y-4">
+
+        <!-- Selected List Details Header Card -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 id="active-list-title" class="text-xl font-bold text-slate-900">請選擇或建立清單</h2>
+                <span id="active-list-badge" class="hidden text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                  擁有者
+                </span>
+              </div>
+              <p id="active-list-desc" class="text-xs text-slate-500 mt-1">協作待辦事項即時更新</p>
+            </div>
+
+            <!-- List Actions & Collaborators -->
+            <div id="active-list-actions" class="hidden flex items-center flex-wrap gap-2">
+              <button id="btn-open-invite" class="flex items-center gap-1.5 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-medium px-3 py-1.5 rounded-lg border border-emerald-200 transition">
+                <i class="fa-solid fa-user-plus"></i>
+                <span>邀請成員</span>
+              </button>
+
+              <button id="btn-delete-list" title="刪除此清單" class="text-xs text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Members pill bar -->
+          <div id="list-members-bar" class="hidden pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+            <div class="flex items-center space-x-2">
+              <span class="text-slate-400">協作成員:</span>
+              <div id="list-members-avatars" class="flex items-center -space-x-1"></div>
+            </div>
+            <div id="tasks-progress-text" class="text-slate-500 font-medium"></div>
+          </div>
+
+          <!-- Progress bar -->
+          <div id="progress-bar-container" class="hidden w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div id="tasks-progress-bar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Add Task Input Card -->
+        <div id="add-task-card" class="hidden bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <form id="form-add-task" class="space-y-3">
+            <div class="flex gap-2">
+              <input id="input-task-title" type="text" placeholder="新增待辦任務... (例如: 完成系統整合測試)" required
+                class="flex-1 bg-slate-50 focus:bg-white text-sm text-slate-900 border border-slate-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition">
+              <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2.5 rounded-xl shadow-md shadow-brand-500/20 text-sm flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-plus"></i>
+                <span class="hidden sm:inline">新增</span>
+              </button>
+            </div>
+
+            <!-- Task Options: Priority, Due Date, Assignee -->
+            <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+              <div class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
+                <i class="fa-solid fa-flag text-slate-400"></i>
+                <label for="select-task-priority" class="sr-only">優先級</label>
+                <select id="select-task-priority" class="bg-transparent border-none text-xs focus:ring-0 cursor-pointer">
+                  <option value="medium">優先級: 中</option>
+                  <option value="high">優先級: 高 🔥</option>
+                  <option value="low">優先級: 低 ☕</option>
+                </select>
+              </div>
+
+              <div class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
+                <i class="fa-regular fa-calendar text-slate-400"></i>
+                <input id="input-task-duedate" type="date" class="bg-transparent border-none text-xs focus:ring-0 cursor-pointer text-slate-600">
+              </div>
+
+              <div class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
+                <i class="fa-solid fa-user-check text-slate-400"></i>
+                <label for="select-task-assignee" class="sr-only">指派對象</label>
+                <select id="select-task-assignee" class="bg-transparent border-none text-xs focus:ring-0 cursor-pointer max-w-[150px] truncate">
+                  <option value="">指派: 未指派</option>
+                  <!-- Member options injected dynamically -->
+                </select>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div id="tasks-toolbar" class="hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
+          <!-- Filter Tabs -->
+          <div class="flex items-center space-x-1 text-xs">
+            <button class="task-filter-btn px-3 py-1.5 rounded-lg font-medium transition-colors bg-brand-50 text-brand-700" data-filter="all">全部</button>
+            <button class="task-filter-btn px-3 py-1.5 rounded-lg font-medium transition-colors text-slate-600 hover:bg-slate-100" data-filter="active">進行中</button>
+            <button class="task-filter-btn px-3 py-1.5 rounded-lg font-medium transition-colors text-slate-600 hover:bg-slate-100" data-filter="completed">已完成</button>
+            <button class="task-filter-btn px-3 py-1.5 rounded-lg font-medium transition-colors text-slate-600 hover:bg-slate-100" data-filter="assigned-me">指派給我</button>
+          </div>
+
+          <!-- Search input -->
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-400"></i>
+            <input id="input-search-tasks" type="text" placeholder="搜尋任務..." class="text-xs bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500 w-full sm:w-48">
+          </div>
+        </div>
+
+        <!-- Tasks Container -->
+        <div id="tasks-list" class="space-y-2">
+          <!-- Task cards injected dynamically -->
+          <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 text-slate-400 text-sm">
+            請從左側選擇或建立一個待辦清單
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal: Create New List -->
+  <div id="modal-create-list" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-folder-plus text-brand-600"></i>
+          建立新待辦清單
+        </h3>
+        <button class="btn-close-modal text-slate-400 hover:text-slate-600">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <form id="form-create-list" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">清單名稱 *</label>
+          <input id="input-list-title" type="text" placeholder="例如: 2026 產品衝刺計劃 / 團隊週會" required
+            class="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">描述 (選填)</label>
+          <textarea id="input-list-desc" rows="2" placeholder="清單主要目標或備註..."
+            class="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-close-modal px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition">
+            取消
+          </button>
+          <button type="submit" class="px-4 py-2 text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-xl shadow-md shadow-brand-500/20 transition">
+            建立清單
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Invite Collaborator -->
+  <div id="modal-invite" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-user-plus text-emerald-600"></i>
+          邀請協作成員
+        </h3>
+        <button class="btn-close-modal text-slate-400 hover:text-slate-600">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        輸入對方的 Google 電子信箱，對方登入後即可在側邊欄看到此協作清單並共同編輯。
+      </p>
+
+      <form id="form-invite-member" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">成員 Google Email</label>
+          <input id="input-invite-email" type="email" placeholder="colleague@gmail.com" required
+            class="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
+        </div>
+
+        <!-- Current Members List -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-2">現有成員清單</label>
+          <div id="modal-members-list" class="max-h-40 overflow-y-auto space-y-1.5">
+            <!-- Dynamic members -->
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn-close-modal px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition">
+            關閉
+          </button>
+          <button type="submit" class="px-4 py-2 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md shadow-emerald-500/20 transition">
+            送出邀請
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Firebase Settings & API Key -->
+  <div id="modal-settings" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-fade-in space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-brand-600"></i>
+          Firebase 連線設定
+        </h3>
+        <button class="btn-close-modal text-slate-400 hover:text-slate-600">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="text-xs text-slate-600 space-y-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+        <p><b>專案 ID：</b><code class="text-indigo-600 font-mono">my-to-do-list-fd68c</code></p>
+        <p>若您剛建立此 Firebase 專案，請前往 <a href="https://console.firebase.google.com/project/my-to-do-list-fd68c/settings/general" target="_blank" class="text-brand-600 underline font-semibold">Firebase 控制台</a>：</p>
+        <ol class="list-decimal list-inside space-y-1 pl-1 text-[11px] text-slate-500">
+          <li>新增 Web 應用程式 (Web App) 並複製 <code>apiKey</code> 與 <code>appId</code>。</li>
+          <li>在 <b>Authentication</b> 中啟用 <b>Google</b> 登入提供者。</li>
+          <li>在 <b>Firestore Database</b> 中建立資料庫 (正式版模式或測試模式)。</li>
+        </ol>
+      </div>
+
+      <form id="form-settings" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Web API Key</label>
+          <input id="input-cfg-apikey" type="text" placeholder="AIzaSy..." required
+            class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Project ID</label>
+            <input id="input-cfg-projectid" type="text" value="my-to-do-list-fd68c" required
+              class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Auth Domain</label>
+            <input id="input-cfg-authdomain" type="text" value="my-to-do-list-fd68c.firebaseapp.com" required
+              class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">App ID (選填)</label>
+          <input id="input-cfg-appid" type="text" placeholder="1:123456789:web:abcdef"
+            class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+        </div>
+
+        <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+          <button type="button" id="btn-reset-config" class="text-xs text-red-500 hover:underline">
+            重設為預設值
+          </button>
+          <div class="flex gap-2">
+            <button type="button" class="btn-close-modal px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition">
+              取消
+            </button>
+            <button type="submit" class="px-4 py-2 text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-xl shadow transition">
+              儲存並重新整理
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- Main ES Module Script -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
